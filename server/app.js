@@ -3,6 +3,7 @@ const path = require("path");
 const express = require("express");
 const cookieParser = require("cookie-parser");
 const { DEFAULT_DB_FILE, openDatabase } = require("../db");
+const crypto = require("crypto");
 
 function sendPublicFile(response, fileName) {
   response.sendFile(path.join(__dirname, "..", "public", fileName));
@@ -21,6 +22,7 @@ async function createApp() {
 
   const db = openDatabase(DEFAULT_DB_FILE);
   const app = express();
+  const csrfTokens = new Map();
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: false }));
@@ -82,7 +84,24 @@ async function createApp() {
 
   next();
 }
+function createCsrfToken(sessionId) {
+  const token = crypto.randomBytes(32).toString("hex");
+  csrfTokens.set(sessionId, token);
+  return token;
+}
 
+function requireCsrf(request, response, next) {
+  const sessionId = request.cookies.sid;
+  const expectedToken = csrfTokens.get(sessionId);
+  const submittedToken = request.get("X-CSRF-Token");
+
+  if (!expectedToken || submittedToken !== expectedToken) {
+    response.status(403).json({ error: "Invalid CSRF token." });
+    return;
+  }
+
+  next();
+}
   app.get("/", (_request, response) => sendPublicFile(response, "index.html"));
   app.get("/login", (_request, response) => sendPublicFile(response, "login.html"));
   app.get("/notes", (_request, response) => sendPublicFile(response, "notes.html"));
@@ -92,6 +111,11 @@ async function createApp() {
   app.get("/api/me", (request, response) => {
     response.json({ user: request.currentUser });
   });
+ 
+  app.get("/api/csrf-token", requireAuth, (request, response) => {
+  const token = createCsrfToken(request.cookies.sid);
+  response.json({ csrfToken: token });
+});
 
   app.post("/api/login", async (request, response) => {
     const username = String(request.body.username || "");
@@ -136,10 +160,11 @@ const sessionId = createSessionId();
     });
   });
 
-  app.post("/api/logout", async (request, response) => {
-    if (request.cookies.sid) {
-      await db.run("DELETE FROM sessions WHERE id = ?", [request.cookies.sid]);
-    }
+app.post("/api/logout", requireAuth, requireCsrf, async (request, response) => {
+  if (request.cookies.sid) {
+    await db.run("DELETE FROM sessions WHERE id = ?", [request.cookies.sid]);
+    csrfTokens.delete(request.cookies.sid);
+}
 
     response.clearCookie("sid");
     response.json({ ok: true });
@@ -172,7 +197,7 @@ app.get("/api/notes", requireAuth, async (request, response) => {
   response.json({ notes });
 });
 
-  app.post("/api/notes", requireAuth, async (request, response) => {
+app.post("/api/notes", requireAuth, requireCsrf, async (request, response) => {
     const ownerId = request.currentUser.id;
     const title = String(request.body.title || "");
     const body = String(request.body.body || "");
@@ -212,7 +237,7 @@ app.get("/api/settings", requireAuth, async (request, response) => {
     response.json({ settings });
   });
 
-  app.post("/api/settings", requireAuth, async (request, response) => {
+app.post("/api/settings", requireAuth, requireCsrf, async (request, response) => {
     const userId = request.currentUser.id;
     const displayName = String(request.body.displayName || "");
     const statusMessage = String(request.body.statusMessage || "");
@@ -228,7 +253,7 @@ app.get("/api/settings", requireAuth, async (request, response) => {
     response.json({ ok: true });
   });
 
-  app.get("/api/settings/toggle-email", requireAuth, async (request, response) => {
+app.post("/api/settings/toggle-email", requireAuth, requireCsrf, async (request, response) => {
     const enabled = request.query.enabled === "1" ? 1 : 0;
 
     await db.run("UPDATE settings SET email_opt_in = ? WHERE user_id = ?", [
