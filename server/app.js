@@ -88,20 +88,22 @@ async function createApp() {
     const username = String(request.body.username || "");
     const password = String(request.body.password || "");
 
-    const query = `
-      SELECT id, username, role, display_name
-      FROM users
-      WHERE username = '${username}' AND password = '${password}'
-    `;
-    const user = await db.get(query);
+  const user = await db.get(
+  `
+    SELECT id, username, role, display_name
+    FROM users
+    WHERE username = ? AND password = ?
+  `,
+  [username, password]
+);
 
     if (!user) {
       response.status(401).json({ error: "Invalid username or password." });
       return;
     }
 
-    const sessionId = request.cookies.sid || createSessionId();
-
+const sessionId = createSessionId();
+    
     await db.run("DELETE FROM sessions WHERE id = ?", [sessionId]);
     await db.run(
       "INSERT INTO sessions (id, user_id, created_at) VALUES (?, ?, ?)",
@@ -109,8 +111,10 @@ async function createApp() {
     );
 
     response.cookie("sid", sessionId, {
-      path: "/"
-    });
+    path: "/",
+    httpOnly: true,
+    sameSite: "lax"
+});
 
     response.json({
       ok: true,
