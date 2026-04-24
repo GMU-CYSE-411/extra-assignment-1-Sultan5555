@@ -61,11 +61,13 @@ document.getElementById("settings-form").addEventListener("submit", async (event
 });
 
 document.getElementById("enable-email").addEventListener("click", async () => {
-  const result = await api("/api/settings/toggle-email?enabled=1");
-  writeJson("settings-output", result);
+  const result = await api("/api/settings/toggle-email?enabled=1", {
+    method: "POST"
+});  writeJson("settings-output", result);
 });
 
 document.getElementById("disable-email").addEventListener("click", async () => {
-  const result = await api("/api/settings/toggle-email?enabled=0");
-  writeJson("settings-output", result);
+  const result = await api("/api/settings/toggle-email?enabled=0", {
+    method: "POST"
+});  writeJson("settings-output", result);
 });
